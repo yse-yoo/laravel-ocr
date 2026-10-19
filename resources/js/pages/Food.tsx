@@ -1,6 +1,7 @@
-import { router, useForm } from '@inertiajs/react';
-import { useState } from 'react';
-import Layout, { CameraInput, fileInputClass } from '@/layout';
+import { router, useForm, usePoll } from '@inertiajs/react';
+import QRCode from 'qrcode';
+import { useEffect, useRef, useState } from 'react';
+import Layout, { CameraInput, fileInputClass, isTouchDevice } from '@/layout';
 import { toImages } from '@/pdf';
 import type { FoodRecord, Nutrition } from '@/types';
 
@@ -15,10 +16,34 @@ const NUTRITION: [keyof Nutrition, string, string][] = [
 ];
 
 // foods は FoodController@index から props で届く。保存・削除後は Inertia が自動で取り直す
-export default function Food({ foods }: { foods: FoodRecord[] }) {
+// PC では QR コードを出し、スマホで保存されたものを foodsVersion のポーリングで拾う
+export default function Food({
+    foods,
+    foodsVersion,
+    phoneUrl,
+}: {
+    foods: FoodRecord[];
+    foodsVersion: string;
+    phoneUrl: string;
+}) {
     const form = useForm<{ file: File | null }>({ file: null });
     const [converting, setConverting] = useState(false);
     const busy = converting || form.processing;
+    const [isTouch] = useState(isTouchDevice);
+
+    usePoll(3000, { only: ['foodsVersion'] }, { autoStart: !isTouch });
+
+    // 自分の保存・削除では foods と foodsVersion が一緒に届くので、取り直さない
+    const shownVersion = useRef(foodsVersion);
+    useEffect(() => {
+        shownVersion.current = foodsVersion;
+    }, [foods]);
+    useEffect(() => {
+        if (foodsVersion !== shownVersion.current) {
+            shownVersion.current = foodsVersion;
+            router.reload({ only: ['foods'] });
+        }
+    }, [foodsVersion]);
 
     async function run(e: React.FormEvent) {
         e.preventDefault();
@@ -91,6 +116,8 @@ export default function Food({ foods }: { foods: FoodRecord[] }) {
                     </button>
                 </form>
 
+                {!isTouch && <PhoneQr url={phoneUrl} />}
+
                 {form.errors.file && (
                     <p className="rounded bg-red-100 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
                         {form.errors.file}
@@ -113,6 +140,35 @@ export default function Food({ foods }: { foods: FoodRecord[] }) {
                 ))}
             </div>
         </Layout>
+    );
+}
+
+// スマホで同じページを開くための QR コード。スマホから保存すると PC の一覧にも数秒で出る
+function PhoneQr({ url }: { url: string }) {
+    const [qrCode, setQrCode] = useState<string | null>(null);
+    const isLocalOnly = /\/\/(localhost|127\.0\.0\.1|\[::1\])[:/]/.test(url);
+
+    useEffect(() => {
+        QRCode.toDataURL(url, { margin: 1, width: 160 }).then(setQrCode);
+    }, [url]);
+
+    return (
+        <details className="rounded-lg border border-neutral-300 dark:border-neutral-700">
+            <summary className="cursor-pointer px-4 py-2 text-sm">スマホのカメラで撮影する</summary>
+            <div className="flex flex-wrap items-center gap-4 px-4 pb-4">
+                {qrCode && <img src={qrCode} alt="スマホで開く QR コード" className="size-40 rounded bg-white" />}
+                <div className="flex flex-col gap-1 text-sm">
+                    <p>スマホのカメラで QR コードを読み取り、開いたページで撮影して保存してください。</p>
+                    <p>保存した内容は、この一覧に自動で表示されます。</p>
+                    <p className="font-mono text-neutral-500">{url}</p>
+                    {isLocalOnly && (
+                        <p className="text-red-700 dark:text-red-300">
+                            PC の LAN の IP アドレスが分からないため、スマホからは開けません。
+                        </p>
+                    )}
+                </div>
+            </div>
+        </details>
     );
 }
 

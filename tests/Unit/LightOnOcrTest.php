@@ -31,4 +31,17 @@ class LightOnOcrTest extends TestCase
     {
         $this->assertSame([], LightOnOcr::parseGrounding("# 見出し\n本文"));
     }
+
+    public function test_has_text_is_false_when_only_image_markers_are_returned(): void
+    {
+        $this->assertFalse(LightOnOcr::hasText('![image](image_1.png)'));
+        $this->assertFalse(LightOnOcr::hasText("![image](image_1.png)\n\n![image](image_2.png)\n"));
+        $this->assertFalse(LightOnOcr::hasText(''));
+    }
+
+    public function test_has_text_is_true_when_text_is_returned(): void
+    {
+        $this->assertTrue(LightOnOcr::hasText("![image](image_1.png)\n原材料名：小麦粉"));
+        $this->assertTrue(LightOnOcr::hasText('名称：ビスケット'));
+    }
 }

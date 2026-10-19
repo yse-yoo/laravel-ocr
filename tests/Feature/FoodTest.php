@@ -54,6 +54,40 @@ class FoodTest extends TestCase
                     ->etc()));
     }
 
+    public function test_index_polling_returns_only_foods_version(): void
+    {
+        $food = Food::factory()->create();
+        $version = $this->get(route('food.index'))->viewData('page')['version'];
+
+        $this->get(route('food.index'), [
+            'X-Inertia' => 'true',
+            'X-Inertia-Version' => $version,
+            'X-Inertia-Partial-Component' => 'Food',
+            'X-Inertia-Partial-Data' => 'foodsVersion',
+        ])
+            ->assertOk()
+            ->assertJsonPath('props.foodsVersion', "1:{$food->id}")
+            ->assertJsonMissingPath('props.foods');
+    }
+
+    public function test_index_gives_phone_url_on_the_lan_when_opened_from_localhost(): void
+    {
+        if (@stream_socket_client('udp://8.8.8.8:53', $errorCode, $errorMessage, 1) === false) {
+            $this->markTestSkipped('ネットワークに接続されていないため、LAN の IP アドレスを調べられない');
+        }
+
+        $this->get('http://localhost:8000/food')
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('phoneUrl', fn (string $url) => str_ends_with($url, ':8000/food')
+                    && ! str_contains($url, '//localhost')));
+    }
+
+    public function test_index_keeps_phone_url_when_already_opened_from_the_lan(): void
+    {
+        $this->get('http://192.168.1.10:8000/food')
+            ->assertInertia(fn (Assert $page) => $page->where('phoneUrl', 'http://192.168.1.10:8000/food'));
+    }
+
     public function test_store_saves_ocr_text_and_extracted_food_info(): void
     {
         $this->fakeServers('原材料名：小麦粉、砂糖／乳化剤（大豆由来）', [
@@ -94,6 +128,22 @@ class FoodTest extends TestCase
             ->assertRedirect(route('food.index'))
             ->assertSessionHasErrors('file');
 
+        $this->assertDatabaseEmpty('food');
+    }
+
+    public function test_store_reports_error_without_extracting_when_ocr_reads_no_text(): void
+    {
+        Http::fake([
+            'ocr.test/*' => Http::response(['choices' => [['message' => ['content' => '![image](image_1.png)']]]]),
+            'food.test/*' => Http::response(),
+        ]);
+
+        $this->from(route('food.index'))
+            ->post(route('food.store'), ['file' => UploadedFile::fake()->image('label.jpg')])
+            ->assertRedirect(route('food.index'))
+            ->assertSessionHasErrors('file');
+
+        Http::assertNotSent(fn (Request $request) => str_starts_with($request->url(), 'http://food.test'));
         $this->assertDatabaseEmpty('food');
     }
 

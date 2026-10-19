@@ -84,6 +84,14 @@ class LightOnOcr
     }
 
     /**
+     * 文字が読み取れたか。写真全体を図とみなすと "![image](image_1.png)" だけが返ってくる
+     */
+    public static function hasText(string $md): bool
+    {
+        return trim(preg_replace('/!\[[^\]]*\]\([^)]*\)/u', '', $md)) !== '';
+    }
+
+    /**
      * プレビュー表示用の軽量 JPEG（data URL）
      */
     public function preview(string $png): string
